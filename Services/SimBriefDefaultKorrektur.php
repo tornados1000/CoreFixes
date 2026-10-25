@@ -30,7 +30,8 @@ use Illuminate\Support\Facades\Log;
  * nach dem Core-Import konnte bei einem Netzaussetzer die falschen Defaults stehen lassen und
  * verdoppelte den Verkehr). Einziger Unterschied: das id-lose „Default“ einer Variante, deren
  * airframe_icao einem ANDEREN Typschlüssel gehört, wird nicht geschrieben — so bleibt die Zeile
- * des Grundtyps mit seinen Daten stehen. Gleiche Schlüssel wie im Core, also gleiche Zeilen-IDs;
+ * des Grundtyps mit seinen Daten stehen. Ebenso die Typdaten (simbrief_aircraft, je ICAO) einer
+ * Variante. SimBriefs Typschlüssel ist `aircraft_id` (BBJ2), die ICAO `aircraft_icao` (B738). Gleiche Schlüssel wie im Core, also gleiche Zeilen-IDs;
  * nichts wird gelöscht. Typen ohne eigenen Grundtyp-Eintrag behalten das Core-Verhalten.
  * Ist die Liste nicht abrufbar, passiert wie im Core nichts.
  */
@@ -49,15 +50,16 @@ final class SimBriefDefaultKorrektur extends SimBriefService
         Log::debug('SimBrief | Aircraft and Airframe data obtained');
         $json = (array) $sbdata->json();
 
-        // ICAOs, für die es einen eigenen Grundtyp-Eintrag gibt (Typschlüssel = airframe_icao).
+        // SimBriefs Typschlüssel steht in `aircraft_id` (BBJ2), die ICAO in `aircraft_icao` (B738).
+        // Grundtypen = Typschlüssel, die es als eigenen Eintrag gibt.
         $grundtypen = [];
         foreach ($json as $ac) {
-            $grundtypen[strtoupper((string) ($ac['aircraft_icao'] ?? ''))] = true;
+            $grundtypen[strtoupper((string) ($ac['aircraft_id'] ?? ''))] = true;
         }
 
         $uebersprungen = 0;
         foreach ($json as $ac) {
-            $typSchluessel = strtoupper((string) ($ac['aircraft_icao'] ?? ''));
+            $typSchluessel = strtoupper((string) ($ac['aircraft_id'] ?? ''));
             foreach ((array) ($ac['airframes'] ?? []) as $af) {
                 $icao = strtoupper((string) ($af['airframe_icao'] ?? ''));
                 if ($af['airframe_id'] == false && $icao !== $typSchluessel && isset($grundtypen[$icao])) {
@@ -78,6 +80,13 @@ final class SimBriefDefaultKorrektur extends SimBriefService
             }
 
             unset($ac['airframes']);
+
+            // Dieselbe Kollision bei den Typdaten (phpVMS speichert sie je ICAO): eine Variante
+            // (BBJ2, ICAO B738) überschreibt nicht den Grundtyp (B738).
+            $acIcao = strtoupper((string) ($ac['aircraft_icao'] ?? ''));
+            if ($acIcao !== $typSchluessel && isset($grundtypen[$acIcao])) {
+                continue;
+            }
 
             SimBriefAircraft::updateOrCreate([
                 'icao' => $ac['aircraft_icao'],

@@ -462,7 +462,7 @@ cache, with one log warning per process.
 After switching on, run `php artisan cache:clear` after direct DB edits of settings or modules.
 Measured on a copy of production: −30 % response time.
 
-## SimBrief-„Default“-Profile gehören zum Grundtyp (v1.12.0)
+## SimBrief-„Default“-Profile gehören zum Grundtyp (v1.12.0, korrigiert in v1.12.1)
 
 Der wöchentliche phpVMS-Import der SimBrief-Profile speichert jedes Profil unter ICAO + Name. SimBriefs
 öffentliche Liste führt aber Varianten, deren „Default“ dieselbe ICAO trägt wie der Grundtyp (BBJ2/B738,
@@ -489,3 +489,5 @@ overwrote the base type (188 of 188 "Default" rows on 25.10.2026). `SimBriefDefa
 `SimBriefService`, runs the core import with a single download and skips the id-less "Default" of a variant
 whose airframe_icao belongs to another type key, so the base type keeps its own data — same keys and row ids
 as the core, nothing deleted.
+
+**v1.12.1:** SimBriefs Typschlüssel steht in `aircraft_id` (BBJ2), `aircraft_icao` ist die ICAO (B738) — 1.12.0 verglich das falsche Feld und übersprang auf Live 0 Varianten. Zusätzlich überschreiben Varianten jetzt auch die Typdaten (`simbrief_aircraft`, je ICAO) des Grundtyps nicht mehr. Vorab an der Liste geprüft: 19 Varianten-Defaults und 19 Typzeilen.
