@@ -461,3 +461,33 @@ cache, with one log warning per process.
 
 After switching on, run `php artisan cache:clear` after direct DB edits of settings or modules.
 Measured on a copy of production: −30 % response time.
+
+## SimBrief-„Default“-Profile gehören zum Grundtyp (v1.12.0, korrigiert in v1.12.1)
+
+Der wöchentliche phpVMS-Import der SimBrief-Profile speichert jedes Profil unter ICAO + Name. SimBriefs
+öffentliche Liste führt aber Varianten, deren „Default“ dieselbe ICAO trägt wie der Grundtyp (BBJ2/B738,
+E19L/E190, AC1T/AC11, B77F/B77L …). Die zuletzt gelesene Variante überschrieb den Grundtyp: Gemessen am
+25.10.2026 erklärt das 188 von 188 „Default“-Zeilen; der B738-„Default“ trug die 46 t Leergewicht der BBJ2,
+der E190-„Default“ die 19 Sitze der Lineage.
+
+`Services/SimBriefDefaultKorrektur.php` ist an `SimBriefService` gebunden und führt denselben Import wie der
+Core aus, mit einem einzigen Abruf der Liste. Einziger Unterschied: Das id-lose „Default“ einer Variante,
+deren airframe_icao einem anderen Typschlüssel gehört, wird nicht geschrieben, sodass die Zeile des
+Grundtyps seine eigenen Daten behält. Gleiche Schlüssel wie im Core, also gleiche Zeilen-IDs (PaxStudio
+adressiert „Default“ über die Zeilen-ID); nichts wird gelöscht. Ist die Liste nicht abrufbar, passiert wie
+im Core nichts. Varianten bekommen keine eigene Zeile,
+weil phpVMS zwei „Default“ je ICAO nicht unterscheiden kann; PaxStudio rechnet für „Default“ ohnehin mit
+SimBriefs Typstandard je Typschlüssel (ab 2.20.0).
+
+Der alte `SimBriefAirframeAufraeumer` bleibt wie bisher ungebunden.
+
+## SimBrief "Default" airframes belong to the base type (v1.12.0, English)
+
+phpVMS's weekly SimBrief import stores each airframe under ICAO + name, but SimBrief lists variants whose
+"Default" shares the base type's ICAO (BBJ2/B738, E19L/E190, AC1T/AC11, B77F/B77L …); the variant read last
+overwrote the base type (188 of 188 "Default" rows on 25.10.2026). `SimBriefDefaultKorrektur`, bound to
+`SimBriefService`, runs the core import with a single download and skips the id-less "Default" of a variant
+whose airframe_icao belongs to another type key, so the base type keeps its own data — same keys and row ids
+as the core, nothing deleted.
+
+**v1.12.1:** SimBriefs Typschlüssel steht in `aircraft_id` (BBJ2), `aircraft_icao` ist die ICAO (B738) — 1.12.0 verglich das falsche Feld und übersprang auf Live 0 Varianten. Zusätzlich überschreiben Varianten jetzt auch die Typdaten (`simbrief_aircraft`, je ICAO) des Grundtyps nicht mehr. Vorab an der Liste geprüft: 19 Varianten-Defaults und 19 Typzeilen.

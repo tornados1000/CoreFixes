@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\CoreFixes\Providers;
 
+use App\Services\SimBriefService;
+use Modules\CoreFixes\Services\SimBriefDefaultKorrektur;
 use App\Http\Controllers\Api\AcarsController;
 use App\Models\Flight;
 use App\Models\User;
@@ -394,5 +396,10 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // (Provider-boot laeuft vor der Routen-Registrierung, und diese
         // Installation faehrt route:cache).
         $this->app->bind(ProfileController::class, ProfileControllerFix::class);
+
+        // FIX 9 — der woechentliche SimBrief-Import (app/Cron/Weekly/UpdateSimbriefData holt den
+        // Dienst ueber app(SimBriefService::class)) schreibt danach die „Default“-Profile mit den
+        // Daten des Grundtyps statt der zuletzt gelesenen Variante. Siehe SimBriefDefaultKorrektur.
+        $this->app->bind(SimBriefService::class, SimBriefDefaultKorrektur::class);
     }
 }
