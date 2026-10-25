@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Modules\CoreFixes\Services;
 
+use App\Models\Enums\AirframeSource;
+use App\Models\SimBriefAircraft;
 use App\Models\SimBriefAirframe;
 use App\Services\SimBriefService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Throwable;
 
 /**
  * FIX 9 — die „Default“-Profile des SimBrief-Imports gehören zum Grundtyp.
@@ -25,59 +26,68 @@ use Throwable;
  *
  * # Die Korrektur
  *
- * Nach dem Import werden nur die „Default“-Zeilen neu geschrieben, und zwar mit den Daten des
- * Eintrags, dessen äußerer Typschlüssel gleich seiner airframe_icao ist (der Grundtyp). Es wird
- * nichts gelöscht und nichts neu angelegt; die Zeilen-IDs bleiben (PaxStudio adressiert
- * „Default“ über die Zeilen-ID). Varianten bekommen keine eigene Zeile — phpVMS kann zwei
- * „Default“ je ICAO nicht unterscheiden. Ist die Liste nicht abrufbar oder unplausibel klein,
- * passiert nichts.
+ * Derselbe Import wie im Core, mit EINEM Abruf der Liste (Codex 25.10.2026: ein zweiter Abruf
+ * nach dem Core-Import konnte bei einem Netzaussetzer die falschen Defaults stehen lassen und
+ * verdoppelte den Verkehr). Einziger Unterschied: das id-lose „Default“ einer Variante, deren
+ * airframe_icao einem ANDEREN Typschlüssel gehört, wird nicht geschrieben — so bleibt die Zeile
+ * des Grundtyps mit seinen Daten stehen. Gleiche Schlüssel wie im Core, also gleiche Zeilen-IDs;
+ * nichts wird gelöscht. Typen ohne eigenen Grundtyp-Eintrag behalten das Core-Verhalten.
+ * Ist die Liste nicht abrufbar, passiert wie im Core nichts.
  */
 final class SimBriefDefaultKorrektur extends SimBriefService
 {
-    /** Weniger Typen als das ist eine halbe Antwort, kein SimBrief-Katalog (25.10.2026: ~400). */
-    private const MINDESTUMFANG = 100;
-
     public function getAircraftAndAirframes(): void
     {
-        parent::getAircraftAndAirframes();
+        $url = config('phpvms.simbrief_airframes_url');
+        $sbdata = Http::get($url);
 
-        try {
-            $antwort = Http::timeout(60)->get(config('phpvms.simbrief_airframes_url'));
-            $liste = $antwort->ok() ? (array) $antwort->json() : [];
-            if (count($liste) < self::MINDESTUMFANG) {
-                Log::warning('SimBrief | Default-Korrektur uebersprungen: Liste nicht abrufbar oder zu klein ('.count($liste).')');
+        if (! $sbdata->ok()) {
+            Log::error('SimBrief | An Error Occured while trying to get aircraft and airframe data!');
 
-                return;
-            }
-
-            $korrigiert = 0;
-            foreach ($liste as $schluessel => $typ) {
-                $typSchluessel = strtoupper(trim((string) ($typ['aircraft_icao'] ?? $schluessel)));
-                foreach ((array) ($typ['airframes'] ?? []) as $af) {
-                    $icao = strtoupper(trim((string) ($af['airframe_icao'] ?? '')));
-                    if (! empty($af['airframe_id']) || $icao !== $typSchluessel) {
-                        continue;   // nur das id-lose „Default“ des Grundtyps
-                    }
-                    $zeile = SimBriefAirframe::where('icao', $af['airframe_icao'])
-                        ->where('name', $af['airframe_comments'])
-                        ->where(fn ($q) => $q->whereNull('airframe_id')->orWhere('airframe_id', ''))
-                        ->first();
-                    if ($zeile === null) {
-                        continue;
-                    }
-                    $optionen = json_encode($af['airframe_options'] ?? null);
-                    if ((string) $zeile->options === $optionen) {
-                        continue;
-                    }
-                    $zeile->details = json_encode($af);
-                    $zeile->options = $optionen;
-                    $zeile->save();
-                    $korrigiert++;
-                }
-            }
-            Log::info('SimBrief | Default-Korrektur: '.$korrigiert.' Default-Profile auf den Grundtyp gesetzt');
-        } catch (Throwable $e) {
-            Log::warning('SimBrief | Default-Korrektur fehlgeschlagen: '.$e->getMessage());
+            return;
         }
+        Log::debug('SimBrief | Aircraft and Airframe data obtained');
+        $json = (array) $sbdata->json();
+
+        // ICAOs, für die es einen eigenen Grundtyp-Eintrag gibt (Typschlüssel = airframe_icao).
+        $grundtypen = [];
+        foreach ($json as $ac) {
+            $grundtypen[strtoupper((string) ($ac['aircraft_icao'] ?? ''))] = true;
+        }
+
+        $uebersprungen = 0;
+        foreach ($json as $ac) {
+            $typSchluessel = strtoupper((string) ($ac['aircraft_icao'] ?? ''));
+            foreach ((array) ($ac['airframes'] ?? []) as $af) {
+                $icao = strtoupper((string) ($af['airframe_icao'] ?? ''));
+                if ($af['airframe_id'] == false && $icao !== $typSchluessel && isset($grundtypen[$icao])) {
+                    $uebersprungen++;
+                    continue;   // „Default“ einer Variante — der Grundtyp schreibt seine eigenen Daten
+                }
+                SimBriefAirframe::updateOrCreate([
+                    'icao' => $af['airframe_icao'],
+                    'name' => $af['airframe_comments'],
+                ], [
+                    'icao'        => $af['airframe_icao'],
+                    'name'        => $af['airframe_comments'],
+                    'airframe_id' => ($af['airframe_id'] != false) ? $af['pilot_id'].'_'.$af['airframe_id'] : null,
+                    'source'      => AirframeSource::SIMBRIEF,
+                    'details'     => json_encode($af),
+                    'options'     => json_encode($af['airframe_options']),
+                ]);
+            }
+
+            unset($ac['airframes']);
+
+            SimBriefAircraft::updateOrCreate([
+                'icao' => $ac['aircraft_icao'],
+            ], [
+                'icao'    => $ac['aircraft_icao'],
+                'name'    => $ac['aircraft_name'],
+                'details' => json_encode($ac),
+            ]);
+        }
+
+        Log::info('SimBrief | Import mit Default-Korrektur: '.$uebersprungen.' Varianten-Defaults uebersprungen');
     }
 }

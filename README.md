@@ -470,10 +470,12 @@ E19L/E190, AC1T/AC11, B77F/B77L …). Die zuletzt gelesene Variante überschrieb
 25.10.2026 erklärt das 188 von 188 „Default“-Zeilen; der B738-„Default“ trug die 46 t Leergewicht der BBJ2,
 der E190-„Default“ die 19 Sitze der Lineage.
 
-`Services/SimBriefDefaultKorrektur.php` ist an `SimBriefService` gebunden und schreibt nach dem Import nur
-die „Default“-Zeilen neu, mit den Daten des Grundtyps (äußerer Typschlüssel = airframe_icao). Nichts wird
-gelöscht oder neu angelegt, die Zeilen-IDs bleiben (PaxStudio adressiert „Default“ über die Zeilen-ID). Ist
-die Liste nicht abrufbar oder kleiner als 100 Typen, passiert nichts. Varianten bekommen keine eigene Zeile,
+`Services/SimBriefDefaultKorrektur.php` ist an `SimBriefService` gebunden und führt denselben Import wie der
+Core aus, mit einem einzigen Abruf der Liste. Einziger Unterschied: Das id-lose „Default“ einer Variante,
+deren airframe_icao einem anderen Typschlüssel gehört, wird nicht geschrieben, sodass die Zeile des
+Grundtyps seine eigenen Daten behält. Gleiche Schlüssel wie im Core, also gleiche Zeilen-IDs (PaxStudio
+adressiert „Default“ über die Zeilen-ID); nichts wird gelöscht. Ist die Liste nicht abrufbar, passiert wie
+im Core nichts. Varianten bekommen keine eigene Zeile,
 weil phpVMS zwei „Default“ je ICAO nicht unterscheiden kann; PaxStudio rechnet für „Default“ ohnehin mit
 SimBriefs Typstandard je Typschlüssel (ab 2.20.0).
 
@@ -484,5 +486,6 @@ Der alte `SimBriefAirframeAufraeumer` bleibt wie bisher ungebunden.
 phpVMS's weekly SimBrief import stores each airframe under ICAO + name, but SimBrief lists variants whose
 "Default" shares the base type's ICAO (BBJ2/B738, E19L/E190, AC1T/AC11, B77F/B77L …); the variant read last
 overwrote the base type (188 of 188 "Default" rows on 25.10.2026). `SimBriefDefaultKorrektur`, bound to
-`SimBriefService`, rewrites only the "Default" rows with the base type's data after the import — nothing is
-deleted or created, row ids stay, nothing happens when the list is unavailable or smaller than 100 types.
+`SimBriefService`, runs the core import with a single download and skips the id-less "Default" of a variant
+whose airframe_icao belongs to another type key, so the base type keeps its own data — same keys and row ids
+as the core, nothing deleted.
