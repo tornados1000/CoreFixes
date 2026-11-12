@@ -20,7 +20,10 @@ use Illuminate\Support\Facades\Cache;
 use Modules\CoreFixes\Cache\StatistikCacheManager;
 use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
 use Modules\CoreFixes\Http\Controllers\ProfileControllerFix;
+use Modules\CoreFixes\Http\Middleware\ApiSeitengroesse;
 use Modules\CoreFixes\Http\Middleware\CartoSchluessel;
+use Modules\CoreFixes\Http\Middleware\ManuelleQuelle;
+use Modules\CoreFixes\Listeners\ProfilRufzeichen;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
 use Modules\CoreFixes\Observers\UserCallsignObserver;
@@ -88,6 +91,27 @@ final class CoreFixesServiceProvider extends ServiceProvider
         $this->zeitplanSperrenReparieren();
         $this->cartoSchluesselEinhaengen();
         $this->sperrdauerKuerzen();
+        $this->phpvms7013Nachziehen();
+    }
+
+    /**
+     * Drei Stellen, die phpVMS 7.0.13 fuer GSG sonst bricht (Fix 10–12):
+     * Seitengroesse der API, Quelle „manuell“ und das Rufzeichen im Profil.
+     * Die Gruende stehen in den drei Klassen. Nach Codelage sind alle drei auf
+     * 7.0.11 wirkungslos bzw. deckungsgleich mit dem alten Verhalten; das Modul
+     * geht deshalb VOR dem Kern auf Live (sonst gaebe es ein Fenster mit
+     * 20er-Flottenliste).
+     */
+    private function phpvms7013Nachziehen(): void
+    {
+        \Illuminate\Support\Facades\Event::listen(\App\Events\ProfileUpdated::class, ProfilRufzeichen::class);
+
+        $this->app->booted(function (): void {
+            /** @var \Illuminate\Routing\Router $router */
+            $router = $this->app->make(\Illuminate\Routing\Router::class);
+            $router->pushMiddlewareToGroup('api', ApiSeitengroesse::class);
+            $router->pushMiddlewareToGroup('api', ManuelleQuelle::class);
+        });
     }
 
     /**
@@ -397,9 +421,18 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // Installation faehrt route:cache).
         $this->app->bind(ProfileController::class, ProfileControllerFix::class);
 
+        // FIX 13 — `/admin/pireps/pending` antwortete mit 500 (Collection::orderBy). Die Ableitung
+        // ersetzt nur `pending`; Bindung ueber den Container wie bei Fix 7, weil route:cache laeuft.
+        $this->app->bind(\App\Http\Controllers\Admin\PirepController::class, \Modules\CoreFixes\Http\Controllers\AdminPirepControllerFix::class);
+
         // FIX 9 — der woechentliche SimBrief-Import (app/Cron/Weekly/UpdateSimbriefData holt den
         // Dienst ueber app(SimBriefService::class)) schreibt danach die „Default“-Profile mit den
         // Daten des Grundtyps statt der zuletzt gelesenen Variante. Siehe SimBriefDefaultKorrektur.
         $this->app->bind(SimBriefService::class, SimBriefDefaultKorrektur::class);
+
+        // FIX 14 — Flughafen über einen fremden Code (z. B. IATA) eingegeben: vaCentral liefert einen
+        // schon vorhandenen Flughafen mit anderer ID, der Kern legt ihn doppelt an und bricht mit 500 ab.
+        // Alle Aufrufer (Freiflug, PIREP, Flugimport, Umleitung) holen den Dienst über den Container.
+        $this->app->bind(\App\Services\AirportService::class, \Modules\CoreFixes\Services\AirportServiceFix::class);
     }
 }
